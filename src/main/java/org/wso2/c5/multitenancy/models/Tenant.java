@@ -18,6 +18,9 @@ package org.wso2.c5.multitenancy.models;
 
 import javax.xml.bind.annotation.XmlRootElement;
 
+/**
+ * Tenant model.
+ */
 @XmlRootElement
 public class Tenant {
 

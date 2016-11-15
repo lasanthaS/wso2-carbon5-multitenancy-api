@@ -17,40 +17,56 @@
 package org.wso2.c5.multitenancy.k8s;
 
 import io.fabric8.kubernetes.api.model.Namespace;
+import io.fabric8.kubernetes.api.model.NamespaceBuilder;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
+import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
 import io.fabric8.kubernetes.client.DefaultKubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClient;
+import io.fabric8.utils.Strings;
+import io.netty.handler.codec.http.HttpHeaders;
+import okhttp3.internal.http.RetryAndFollowUpInterceptor;
 import org.wso2.c5.multitenancy.ITenancyProvider;
 import org.wso2.c5.multitenancy.models.Tenant;
 
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Tenant provider for Kubernetes cluster manager.
+ */
 public class KubernetesTenancyProvider implements ITenancyProvider {
-
-    public static final String KUBERNETES_ENDPOINT_URL = "http://172.17.8.101:8080";
 
     private KubernetesClient kubernetesClient;
 
     public KubernetesTenancyProvider() {
-        this.kubernetesClient = new DefaultKubernetesClient(KUBERNETES_ENDPOINT_URL);
-    }
+        String endpointIP = System.getenv(KubernetesConstants.KUBERNETES_MASTER_IP_ENV);
+        String endpointPort = System.getenv(KubernetesConstants.KUBERNETES_MASTER_PORT_ENV);
 
-    public KubernetesTenancyProvider(String endpoint) {
-        kubernetesClient = new DefaultKubernetesClient(endpoint);
+        if (Strings.isNullOrBlank(endpointIP)) {
+            endpointIP = KubernetesConstants.DEFAULT_KUBERNETES_MASTER_IP;
+        }
+        if (Strings.isNullOrBlank(endpointPort)) {
+            endpointPort = KubernetesConstants.DEFAULT_KUBERNETES_MASTER_PORT;
+        }
+        this.kubernetesClient = new DefaultKubernetesClient("http://" + endpointIP + ":" + endpointPort);
     }
 
     @Override
     public Tenant[] getTenants() {
         List<Tenant> tenants = new ArrayList<>();
         for (Namespace ns : kubernetesClient.namespaces().list().getItems()) {
-            tenants.add(new Tenant(ns.getMetadata().getName()));
+            String name = ns.getMetadata().getName();
+            // Do not return reserved namespaces.
+            if (!isReservedNamespace(name)) {
+                tenants.add(new Tenant(name));
+            }
         }
         return tenants.toArray(new Tenant[tenants.size()]);
     }
 
     @Override
     public Tenant getTenant(String name) {
+        name = name.replace(".", "-").toLowerCase();
         for (Namespace ns : kubernetesClient.namespaces().list().getItems()) {
             if (ns.getMetadata().getName().equals(name)) {
                 return new Tenant(ns.getMetadata().getName());
@@ -61,19 +77,55 @@ public class KubernetesTenancyProvider implements ITenancyProvider {
 
     @Override
     public boolean createTenant(Tenant tenant) {
-        Namespace ns = new Namespace();
-        ns.setApiVersion(kubernetesClient.getApiVersion());
-        ns.setMetadata(new ObjectMeta());
-        ns.getMetadata().setName(tenant.getName());
+        tenant.setName(tenant.getName().replace(".", "-").toLowerCase());
+        if (isReservedNamespace(tenant.getName())) {
+            // Unable to create a tenant with the system namespace name
+            return false;
+        }
+
+        // Check whether the namespace already exists
+        if (isNamespaceExists(tenant.getName())) {
+            return false;
+        }
+
+        ObjectMeta meta = new ObjectMetaBuilder()
+                .withName(tenant.getName())
+                .build();
+        Namespace ns = new NamespaceBuilder()
+                .withMetadata(meta)
+                .build();
+
         kubernetesClient.namespaces().create(ns);
         return true;
     }
 
     @Override
     public boolean deleteTenant(String name) {
+        name = name.replace(".", "-").toLowerCase();
+
+        if (isReservedNamespace(name)) {
+            // Cannot delete system namespaces.
+            return false;
+        }
+
         for (Namespace ns : kubernetesClient.namespaces().list().getItems()) {
             if (ns.getMetadata().getName().equals(name)) {
                 kubernetesClient.namespaces().delete(ns);
+                return true;
+            }
+        }
+        // Namespace not available
+        return false;
+    }
+
+    private boolean isReservedNamespace(String namespace) {
+        return (namespace.equals(KubernetesConstants.RESERVED_NAMESPACE_DEFAULT)
+                || namespace.equals(KubernetesConstants.RESERVED_NAMESPACE_KUBE_SYSTEM));
+    }
+
+    private boolean isNamespaceExists(String namespace) {
+        for(Namespace ns: kubernetesClient.namespaces().list().getItems()) {
+            if (ns.getMetadata().getName().equals(namespace)) {
                 return true;
             }
         }

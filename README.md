@@ -1,1 +1,1 @@
-# wso2-carbon5-multitenancy-api
+# REST API for Multitenancy in WSO2 Carbon 5

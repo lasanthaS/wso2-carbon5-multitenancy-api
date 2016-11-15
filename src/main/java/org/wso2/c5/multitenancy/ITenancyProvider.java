@@ -18,15 +18,39 @@ package org.wso2.c5.multitenancy;
 
 import org.wso2.c5.multitenancy.models.Tenant;
 
-import javax.ws.rs.core.Response;
-
+/**
+ * Interface of a tenant provider.
+ */
 public interface ITenancyProvider {
 
+    /**
+     * Get all the tenants.
+     *
+     * @return Tenant array
+     */
     Tenant[] getTenants();
 
+    /**
+     * Get details of a particular tenant.
+     *
+     * @param name Tenant name
+     * @return Tenant
+     */
     Tenant getTenant(String name);
 
+    /**
+     * Create a new tenant using the given name
+     *
+     * @param tenant Tenant name
+     * @return boolean
+     */
     boolean createTenant(Tenant tenant);
 
+    /**
+     * Delete an existing tenant
+     *
+     * @param name Tenant name
+     * @return boolean
+     */
     boolean deleteTenant(String name);
 }
